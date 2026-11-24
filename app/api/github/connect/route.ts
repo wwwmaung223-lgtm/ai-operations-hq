@@ -4,7 +4,8 @@ import { randomBytes } from "node:crypto";
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
-  const clientId = process.env.GITHUB_APP_CLIENT_ID;\n  const callbackUrl = process.env.GITHUB_APP_CALLBACK_URL;
+  const clientId = process.env.GITHUB_APP_CLIENT_ID;
+  const callbackUrl = process.env.GITHUB_APP_CALLBACK_URL;
   if (!clientId || !callbackUrl) return NextResponse.json({ error: "GitHub App is not configured yet." }, { status: 503 });
   const state = randomBytes(32).toString("hex");
   const redirectUri = callbackUrl;
