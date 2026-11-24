@@ -1,20 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Activity, ArrowUpRight, Bot, CheckCircle2, ChevronDown, CircleHelp,
-  Command, FileImage, FolderGit2, Gauge, LayoutDashboard, Menu,
+  Command, FileImage, FolderGit2, Gauge, LayoutDashboard, LogOut, Menu,
   MessageSquareText, Paperclip, Plus, Search, ShieldCheck, Sparkles,
-  Workflow, X
+  Workflow, X, LoaderCircle
 } from "lucide-react";
 
-const agents = [
-  { name: "CEO Orchestrator", role: "Planning & delegation", status: "Ready", initials: "CO", tone: "violet" },
-  { name: "Software Developer", role: "Code & implementation", status: "Ready", initials: "SD", tone: "blue" },
-  { name: "UI/UX Designer", role: "Visual systems", status: "Ready", initials: "UX", tone: "pink" },
-  { name: "Quality Engineer", role: "Testing & verification", status: "Ready", initials: "QA", tone: "green" },
-  { name: "Security Engineer", role: "Risk & access review", status: "Ready", initials: "SE", tone: "amber" }
-];
+const API = "https://ai-team-live.myintaung7432.workers.dev";
+type Agent = { id: string; agent_key: string; name: string; agent_role: string; status: string };
+type Task = { id: string; title: string; description: string; status: string; priority: string; created_at: string };
+type FeedEvent = { id: number; title: string; detail: string; status: "working" | "done" | "error" | "info" };
 
 const workflow = [
   { title: "Understand the request", detail: "Interpret instructions and reference files", icon: MessageSquareText },
@@ -25,82 +22,182 @@ const workflow = [
 ];
 
 export default function Home() {
+  const [token, setToken] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [authMode, setAuthMode] = useState<"login" | "signup">("login");
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState("");
+  const [userEmail, setUserEmail] = useState("");
   const [prompt, setPrompt] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
-  const [attached, setAttached] = useState<string[]>([]);
-  const [notice, setNotice] = useState("The execution engine is not connected yet. This console is the first UI foundation.");
+  const [attached, setAttached] = useState<File[]>([]);
+  const [notice, setNotice] = useState("Sign in to load your private AI workspace.");
   const [active, setActive] = useState("Overview");
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [feed, setFeed] = useState<FeedEvent[]>([]);
+  const [running, setRunning] = useState(false);
+
+  const api = useCallback(async (path: string, options: RequestInit = {}, authToken = token) => {
+    const headers = new Headers(options.headers || {});
+    if (authToken) headers.set("Authorization", "Bearer " + authToken);
+    if (options.body && !(options.body instanceof FormData) && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+    const response = await fetch(API + path, { ...options, headers });
+    const type = response.headers.get("content-type") || "";
+    if (!response.ok) {
+      const body = type.includes("json") ? await response.json().catch(() => ({})) : await response.text();
+      throw new Error(typeof body === "string" ? body : body.error || body.message || "Request failed (" + response.status + ")");
+    }
+    return type.includes("json") ? response.json() : response;
+  }, [token]);
+
+  const refreshWorkspace = useCallback(async (authToken: string) => {
+    const [user, team, history] = await Promise.all([
+      api("/api/auth/user", {}, authToken),
+      api("/api/agents", {}, authToken),
+      api("/api/tasks", {}, authToken)
+    ]);
+    setUserEmail(user.email || "");
+    setAgents(Array.isArray(team) ? team : []);
+    setTasks(Array.isArray(history) ? history : []);
+  }, [api]);
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem("ai-ops-session");
+    if (!saved) return;
+    setToken(saved);
+    refreshWorkspace(saved).then(() => setNotice("Workspace connected. Your task history and specialist roster are loaded."))
+      .catch(() => { window.localStorage.removeItem("ai-ops-session"); setToken(""); setNotice("Session expired. Please sign in again."); });
+  }, [refreshWorkspace]);
+
+  async function authenticate() {
+    setAuthBusy(true); setAuthError("");
+    try {
+      const response = await fetch(API + (authMode === "login" ? "/api/auth/login" : "/api/auth/signup"), {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim(), password })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || data.msg || data.error_description || data.error || "Authentication failed");
+      if (!data.access_token) {
+        setAuthError("Account request received. Check your email for confirmation, then sign in.");
+        setAuthMode("login"); return;
+      }
+      window.localStorage.setItem("ai-ops-session", data.access_token);
+      setToken(data.access_token);
+      await refreshWorkspace(data.access_token);
+      setNotice("Signed in. Private workspace data loaded from the Operations database.");
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Could not sign in");
+    } finally { setAuthBusy(false); }
+  }
+
+  async function signOut() {
+    window.localStorage.removeItem("ai-ops-session");
+    setToken(""); setUserEmail(""); setAgents([]); setTasks([]); setFeed([]);
+    setNotice("Signed out. Your saved tasks remain in your private database.");
+  }
 
   function addFiles(files: FileList | null) {
     if (!files) return;
-    setAttached(Array.from(files).map(file => file.name));
+    setAttached(current => [...current, ...Array.from(files)].slice(0, 8));
   }
+
+  async function createTask() {
+    const objective = prompt.trim();
+    if (!objective || running || !token) return;
+    setRunning(true); setFeed([]);
+    setNotice("The AI Team is processing your instruction. Agent messages are streamed below.");
+    try {
+      const response = await fetch(API + "/api/run", {
+        method: "POST",
+        headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+        body: JSON.stringify({ objective })
+      });
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || "Task could not start");
+      }
+      if (!response.body) throw new Error("Streaming is not available in this browser");
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let nextId = 0;
+      const add = (title: string, detail: string, status: FeedEvent["status"] = "info") =>
+        setFeed(items => [...items, { id: ++nextId, title, detail, status }]);
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n"); buffer = lines.pop() || "";
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          let event: any;
+          try { event = JSON.parse(line); } catch { continue; }
+          if (event.event === "team_started") add("Team started", "Task ID: " + event.task_id, "working");
+          else if (event.event === "agent_started") add(event.agent?.name || "Agent started", "Step " + event.step + " · Working", "working");
+          else if (event.event === "agent_completed") add("✓ " + (event.agent?.name || "Agent completed"), String(event.output || "Contribution saved"), "done");
+          else if (event.event === "agent_failed") add("⚠ " + (event.agent?.name || "Agent failed"), String(event.error || "Agent error"), "error");
+          else if (event.event === "handoff_saved") add("Handoff saved", String(event.from) + " → " + String(event.to), "done");
+          else if (event.event === "handoff_save_failed") add("Handoff save warning", String(event.error), "error");
+          else if (event.event === "design_started") add("Design preview requested", "The team is preparing its design output.", "working");
+          else if (event.event === "final_report") add("Final report", String(event.report || event.output || ""), "done");
+          else if (event.event === "team_completed") add("Team completed", "Agent workflow finished. Review the report and verify deliverables.", "done");
+          else add(String(event.event || "Team update"), JSON.stringify(event).slice(0, 1200), "info");
+        }
+      }
+      setPrompt(""); setAttached([]);
+      await refreshWorkspace(token);
+      setNotice("Agent workflow finished. Review the streamed outputs; code edits and browser tests are not implied unless explicitly evidenced.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Task failed");
+      setFeed(items => [...items, { id: Date.now(), title: "Task stopped", detail: error instanceof Error ? error.message : "Unknown error", status: "error" }]);
+    } finally { setRunning(false); }
+  }
+
+  const activeTasks = tasks.filter(task => ["queued", "in_progress", "review"].includes(task.status)).length;
+  const completedTasks = tasks.filter(task => task.status === "completed").length;
 
   return (
     <main className="app-shell">
+      {!token && <div className="auth"><form className="authbox" onSubmit={e => { e.preventDefault(); authenticate(); }}>
+        <div className="brand-mark"><Command size={20}/></div><p className="auth-kicker">AI OPERATIONS HQ</p>
+        <h2>{authMode === "login" ? "Welcome back." : "Create your owner account."}</h2>
+        <p className="muted">Sign in to access your private workspace, AI team, and saved task history.</p>
+        <label>Email address<input type="email" value={email} onChange={e => setEmail(e.target.value)} autoComplete="email" required placeholder="you@example.com"/></label>
+        <label>Password<input type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete={authMode === "login" ? "current-password" : "new-password"} minLength={6} required placeholder="At least 6 characters"/></label>
+        {authError && <p className="auth-error">{authError}</p>}
+        <button className="primary-button auth-submit" disabled={authBusy}>{authBusy ? <LoaderCircle className="spin" size={16}/> : null}{authMode === "login" ? "Sign in" : "Create account"} <ArrowUpRight size={15}/></button>
+        <button type="button" className="text-button auth-switch" onClick={() => {setAuthMode(authMode === "login" ? "signup" : "login");setAuthError("");}}>{authMode === "login" ? "New here? Create an account" : "Already have an account? Sign in"}</button>
+        <p className="note">Protected by Supabase Auth and owner-scoped database policies.</p>
+      </form></div>}
       <aside className={`sidebar ${menuOpen ? "sidebar-open" : ""}`}>
-        <div className="brand">
-          <div className="brand-mark"><Command size={20} /></div>
-          <div><strong>OPERATIONS HQ</strong><span>AI WORKSPACE</span></div>
-          <button className="icon-button mobile-close" onClick={() => setMenuOpen(false)} aria-label="Close menu"><X size={18}/></button>
-        </div>
-        <div className="workspace-switch"><div className="workspace-avatar">M</div><div><strong>Owner workspace</strong><span>Personal HQ</span></div><ChevronDown size={15}/></div>
+        <div className="brand"><div className="brand-mark"><Command size={20}/></div><div><strong>OPERATIONS HQ</strong><span>AI WORKSPACE</span></div><button className="icon-button mobile-close" onClick={() => setMenuOpen(false)} aria-label="Close menu"><X size={18}/></button></div>
+        <div className="workspace-switch"><div className="workspace-avatar">M</div><div><strong>Owner workspace</strong><span>{userEmail || "Personal HQ"}</span></div><ChevronDown size={15}/></div>
         <div className="nav-label">WORKSPACE</div>
-        <nav className="nav-list">
-          {[
-            ["Overview", LayoutDashboard], ["AI Team", Bot], ["Tasks & workflows", Workflow],
-            ["Projects", FolderGit2], ["Results Vault", FileImage]
-          ].map(([label, Icon]) => {
-            const I = Icon as typeof LayoutDashboard;
-            return <button key={label as string} className={`nav-item ${active === label ? "active" : ""}`} onClick={() => {setActive(label as string); setNotice(label === "Overview" ? "Workspace overview." : `${label} section is part of the next implementation phase.`);}}><I size={17}/><span>{label as string}</span>{label === "Tasks & workflows" && <span className="nav-count">0</span>}</button>;
-          })}
-        </nav>
-        <div className="nav-label second-label">SYSTEM</div>
-        <nav className="nav-list">
-          <button className="nav-item" onClick={() => setNotice("System health and integrations will appear here after the backend is connected.")}><Gauge size={17}/><span>System health</span></button>
-          <button className="nav-item" onClick={() => setNotice("Security and approvals will be wired to the policy engine.")}><ShieldCheck size={17}/><span>Security & approvals</span></button>
-        </nav>
-        <div className="sidebar-bottom">
-          <div className="help-card"><div className="help-icon"><CircleHelp size={17}/></div><div><strong>Need a hand?</strong><span>Learn how your AI team works.</span></div><ArrowUpRight size={15}/></div>
-          <div className="profile"><div className="profile-avatar">M</div><div><strong>Workspace owner</strong><span>Administrator</span></div><button className="icon-button" aria-label="Profile menu"><ChevronDown size={16}/></button></div>
-        </div>
+        <nav className="nav-list">{[["Overview",LayoutDashboard],["AI Team",Bot],["Tasks & workflows",Workflow],["Projects",FolderGit2],["Results Vault",FileImage]].map(([label,Icon])=>{const I=Icon as typeof LayoutDashboard;return <button key={label as string} className={`nav-item ${active===label?"active":""}`} onClick={()=>{setActive(label as string);setMenuOpen(false);}}><I size={17}/><span>{label as string}</span>{label==="Tasks & workflows"&&<span className="nav-count">{tasks.length}</span>}</button>;})}</nav>
+        <div className="nav-label second-label">SYSTEM</div><nav className="nav-list"><button className="nav-item" onClick={()=>setActive("System health")}><Gauge size={17}/><span>System health</span></button><button className="nav-item" onClick={()=>setActive("Security & approvals")}><ShieldCheck size={17}/><span>Security & approvals</span></button></nav>
+        <div className="sidebar-bottom"><div className="help-card"><div className="help-icon"><CircleHelp size={17}/></div><div><strong>Owner-controlled</strong><span>Approval gates for sensitive actions.</span></div><ArrowUpRight size={15}/></div><div className="profile"><div className="profile-avatar">M</div><div><strong>{userEmail || "Workspace owner"}</strong><span>Administrator</span></div><button className="icon-button" onClick={signOut} aria-label="Sign out"><LogOut size={16}/></button></div></div>
       </aside>
-
-      {menuOpen && <button className="mobile-scrim" aria-label="Close navigation" onClick={() => setMenuOpen(false)} />}
+      {menuOpen && <button className="mobile-scrim" aria-label="Close navigation" onClick={()=>setMenuOpen(false)}/>}
       <section className="main-panel">
-        <header className="topbar">
-          <div className="topbar-left"><button className="icon-button mobile-menu" onClick={() => setMenuOpen(true)} aria-label="Open menu"><Menu size={20}/></button><span className="breadcrumb">Workspace</span><span className="crumb-slash">/</span><strong>{active}</strong></div>
-          <div className="topbar-right"><div className="system-pill"><span className="status-dot"/>System foundation</div><button className="icon-button" aria-label="Search"><Search size={18}/></button><div className="top-avatar">M</div></div>
-        </header>
-
+        <header className="topbar"><div className="topbar-left"><button className="icon-button mobile-menu" onClick={()=>setMenuOpen(true)} aria-label="Open menu"><Menu size={20}/></button><span className="breadcrumb">Workspace</span><span className="crumb-slash">/</span><strong>{active}</strong></div><div className="topbar-right"><div className="system-pill"><span className="status-dot"/>{token?"Connected":"Sign in required"}</div><button className="icon-button" aria-label="Search"><Search size={18}/></button><div className="top-avatar">M</div></div></header>
         <div className="content">
-          <div className="welcome-row">
-            <div><div className="eyebrow"><Sparkles size={14}/> YOUR AI OPERATIONS CENTER</div><h1>Build with your <span>AI team.</span></h1><p>Give an instruction. Your team will plan, execute, test, and report.</p></div>
-            <div className="date-chip"><Activity size={15}/> Owner-controlled workspace</div>
-          </div>
-
-          <section className="composer-card">
-            <div className="composer-top"><div className="composer-icon"><Sparkles size={18}/></div><div><strong>What should your team work on?</strong><span>Describe the outcome. Add screenshots, designs, or project files.</span></div><span className="secure-tag"><ShieldCheck size={13}/> Owner controlled</span></div>
-            <textarea value={prompt} onChange={e => setPrompt(e.target.value)} placeholder="Example: Inspect my website, compare it with the attached design, update the code, then test mobile and desktop..." rows={3}/>
-            {attached.length > 0 && <div className="attachment-list">{attached.map(name => <span key={name}><FileImage size={13}/>{name}</span>)}</div>}
-            <div className="composer-footer"><label className="attach-button"><Paperclip size={16}/> Attach files<input type="file" multiple accept="image/*,.pdf,.txt,.md,.zip" onChange={e => addFiles(e.target.files)} /></label><span className="composer-hint">Reference images · documents · project files</span><button className="primary-button" onClick={() => setNotice(prompt.trim() ? "Task submission is not active yet. The task engine and secure file storage must be connected before this can execute." : "Enter a task instruction first.")}> <Plus size={16}/> Create task <ArrowUpRight size={15}/></button></div>
+          <div className="welcome-row"><div><div className="eyebrow"><Sparkles size={14}/> YOUR AI OPERATIONS CENTER</div><h1>Build with your <span>AI team.</span></h1><p>Give an instruction. Your team will plan, coordinate, and report.</p></div><div className="date-chip"><Activity size={15}/> Owner-controlled workspace</div></div>
+          <section className="composer-card"><div className="composer-top"><div className="composer-icon"><Sparkles size={18}/></div><div><strong>What should your team work on?</strong><span>Describe the outcome. Add reference files for the next file-aware workflow stage.</span></div><span className="secure-tag"><ShieldCheck size={13}/> Owner controlled</span></div>
+            <textarea value={prompt} onChange={e=>setPrompt(e.target.value)} placeholder="Example: Analyze my website's current architecture and create a prioritized improvement plan..." rows={3} disabled={!token||running}/>
+            {attached.length>0&&<div className="attachment-list">{attached.map((file,i)=><span key={i}><FileImage size={13}/>{file.name}</span>)}</div>}
+            <div className="composer-footer"><label className="attach-button"><Paperclip size={16}/> Attach files<input type="file" multiple accept="image/*,.pdf,.txt,.md,.zip" onChange={e=>addFiles(e.target.files)} disabled={!token||running}/></label><span className="composer-hint">Attachments are selected locally; file-to-agent processing is not enabled yet.</span><button className="primary-button" onClick={createTask} disabled={!token||running||!prompt.trim()}>{running?<LoaderCircle className="spin" size={16}/>:<Plus size={16}/>} {running?"Team working":"Start AI Team"} <ArrowUpRight size={15}/></button></div>
           </section>
-
-          <div className="section-heading"><div><h2>Workspace overview</h2><p>Your control center for coordinated AI work.</p></div><span className="muted-label">INITIAL SETUP</span></div>
-          <div className="metrics-grid">
-            <div className="metric-card"><div className="metric-top"><span>Active tasks</span><Workflow size={17}/></div><strong>—</strong><small>Execution engine pending</small></div>
-            <div className="metric-card"><div className="metric-top"><span>AI specialists</span><Bot size={17}/></div><strong>12</strong><small>Roles defined in project spec</small></div>
-            <div className="metric-card"><div className="metric-top"><span>Verified runs</span><CheckCircle2 size={17}/></div><strong>—</strong><small>Verification pipeline pending</small></div>
-            <div className="metric-card"><div className="metric-top"><span>System health</span><Activity size={17}/></div><strong className="health-text">Foundation</strong><small>Application UI scaffold</small></div>
-          </div>
-
-          <div className="lower-grid">
-            <section className="panel-card workflow-card"><div className="panel-heading"><div><h3>How work gets done</h3><p>One accountable execution loop.</p></div><span className="step-count">5 STEPS</span></div><div className="workflow-list">{workflow.map((step,index) => {const Icon=step.icon;return <div className="workflow-step" key={step.title}><div className="step-icon"><Icon size={17}/></div><div className="step-copy"><strong>{step.title}</strong><span>{step.detail}</span></div><span className="step-number">0{index+1}</span></div>})}</div></section>
-            <section className="panel-card team-card"><div className="panel-heading"><div><h3>Meet your AI team</h3><p>Specialist roles and responsibilities.</p></div><button className="text-button" onClick={() => {setActive("AI Team");setNotice("All 12 specialist roles are specified; live agent execution is not yet wired.")}}>View team <ArrowUpRight size={14}/></button></div><div className="agent-list">{agents.map(agent => <div className="agent-row" key={agent.name}><div className={`agent-avatar ${agent.tone}`}>{agent.initials}</div><div className="agent-copy"><strong>{agent.name}</strong><span>{agent.role}</span></div><span className="ready-tag">Defined</span></div>)}</div></section>
-          </div>
-
-          <div className="notice-bar"><div className="notice-symbol"><Activity size={16}/></div><div><strong>Build status</strong><span>{notice}</span></div></div>
-          <footer><span>AI OPERATIONS HQ <i>·</i> FOUNDATION 0.1.0</span><span>Built for accountable AI execution</span></footer>
+          {feed.length>0&&<section className="panel-card live-feed"><div className="panel-heading"><div><h3>Live task activity</h3><p>Streaming events from the AI Team runtime.</p></div><span className="step-count">{running?"RUNNING":"LATEST RUN"}</span></div><div className="feed-list">{feed.map(item=><div className="feed-event" key={item.id}><span className={`feed-dot ${item.status}`}/><div><strong>{item.title}</strong><p>{item.detail}</p></div></div>)}</div></section>}
+          <div className="section-heading"><div><h2>Workspace overview</h2><p>Your control center for coordinated AI work.</p></div><span className="muted-label">LIVE DATA</span></div>
+          <div className="metrics-grid"><div className="metric-card"><div className="metric-top"><span>Active tasks</span><Workflow size={17}/></div><strong>{token?activeTasks:"—"}</strong><small>Saved task records</small></div><div className="metric-card"><div className="metric-top"><span>AI specialists</span><Bot size={17}/></div><strong>{token?agents.length:"—"}</strong><small>Loaded from owner roster</small></div><div className="metric-card"><div className="metric-top"><span>Completed tasks</span><CheckCircle2 size={17}/></div><strong>{token?completedTasks:"—"}</strong><small>Database status records</small></div><div className="metric-card"><div className="metric-top"><span>System health</span><Activity size={17}/></div><strong className="health-text">{token?"Connected":"Offline"}</strong><small>Worker + database session</small></div></div>
+          <div className="lower-grid"><section className="panel-card workflow-card"><div className="panel-heading"><div><h3>How work gets done</h3><p>One accountable execution loop.</p></div><span className="step-count">5 STEPS</span></div><div className="workflow-list">{workflow.map((step,index)=>{const Icon=step.icon;return <div className="workflow-step" key={step.title}><div className="step-icon"><Icon size={17}/></div><div className="step-copy"><strong>{step.title}</strong><span>{step.detail}</span></div><span className="step-number">0{index+1}</span></div>;})}</div></section>
+            <section className="panel-card team-card"><div className="panel-heading"><div><h3>Meet your AI team</h3><p>Specialists loaded from the database.</p></div><span className="step-count">{agents.length}/12</span></div><div className="agent-list">{agents.slice(0,6).map(agent=><div className="agent-row" key={agent.id}><div className="agent-avatar violet">{agent.name.split(" ").map(x=>x[0]).join("").slice(0,2)}</div><div className="agent-copy"><strong>{agent.name}</strong><span>{agent.agent_role}</span></div><span className="ready-tag">{agent.status}</span></div>)}{token&&agents.length===0&&<p className="note">No agent roster returned for this account.</p>}</div></section></div>
+          <section className="panel-card history-card"><div className="panel-heading"><div><h3>Recent tasks</h3><p>Saved to your private Operations database.</p></div><span className="step-count">{tasks.length} RECORDS</span></div>{tasks.length===0?<p className="empty-state">{token?"No tasks yet. Start your first AI Team task above.":"Sign in to see your saved tasks."}</p>:<div className="task-list">{tasks.slice(0,8).map(task=><div className="task-row" key={task.id}><div className="task-copy"><strong>{task.title}</strong><span>{new Date(task.created_at).toLocaleString()} · {task.priority}</span></div><span className={`task-status ${task.status}`}>{task.status.replace("_"," ")}</span></div>)}</div>}</section>
+          <div className="notice-bar"><div className="notice-symbol"><Activity size={16}/></div><div><strong>System status</strong><span>{notice}</span></div></div>
+          <footer><span>AI OPERATIONS HQ <i>·</i> FOUNDATION 0.2.0</span><span>Evidence-led AI execution</span></footer>
         </div>
       </section>
     </main>
