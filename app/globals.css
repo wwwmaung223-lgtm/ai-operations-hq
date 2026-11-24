@@ -24,3 +24,20 @@ button{cursor:pointer}
 
 .auth{background:rgba(3,7,14,.88);backdrop-filter:blur(14px)}.authbox{box-shadow:0 28px 100px #0009}.auth-kicker{font-size:9px;letter-spacing:2px;color:#b9a8ff;font-weight:800;margin:15px 0 7px}.authbox h2{font:800 26px Manrope;margin:0 0 8px}.authbox>label{display:block;color:#aeb8ca;font-size:10px;margin-top:15px}.authbox input{display:block;width:100%;margin-top:7px;background:#091522;color:#f4f6ff;border:1px solid #ffffff18;border-radius:9px;padding:12px;font:12px 'DM Sans',sans-serif;outline:none}.authbox input:focus{border-color:#a78bfa88}.auth-submit{width:100%;justify-content:center;margin-top:18px;padding:12px}.auth-switch{width:100%;justify-content:center;margin-top:13px}.auth-error{font-size:10px;line-height:1.5;color:#ff9b9b;background:#ff5d5d14;border:1px solid #ff5d5d33;padding:9px;border-radius:8px}.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}.live-feed,.history-card{margin-top:15px}.feed-list{max-height:520px;overflow:auto;display:grid;gap:10px}.feed-event{display:flex;gap:10px;padding:10px;border-top:1px solid #ffffff0b}.feed-dot{width:8px;height:8px;border-radius:50%;background:#9c8aff;margin-top:5px;flex:none}.feed-dot.done{background:#70d7a2}.feed-dot.error{background:#ff8888}.feed-event strong{font-size:10px}.feed-event p{font-size:10px;line-height:1.55;color:#9aa5ba;white-space:pre-wrap;overflow-wrap:anywhere;margin:5px 0 0}.task-list{display:grid}.task-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 2px;border-top:1px solid #ffffff0b}.task-copy{min-width:0}.task-copy strong{font-size:10px;display:block;overflow-wrap:anywhere}.task-copy span{font-size:9px;color:#7e899e;display:block;margin-top:4px}.task-status{font-size:8px;text-transform:uppercase;letter-spacing:.6px;border-radius:20px;padding:5px 8px;background:#ffffff0d;color:#aab4c8;white-space:nowrap}.task-status.completed{color:#84d8ad;background:#4ade8014}.task-status.in_progress,.task-status.queued{color:#c6b5ff;background:#a78bfa17}.task-status.failed{color:#ff9b9b;background:#ff5d5d14}.empty-state{font-size:10px;color:#7f899e;padding:10px 0}.note{font-size:9px;line-height:1.55;color:#7e899e;margin-top:13px}.authbox .note{text-align:center}.profile button{margin-left:auto}
 @media(max-width:760px){.auth{align-items:center;padding:16px}.authbox{padding:18px}.task-row{align-items:flex-start}.feed-list{max-height:420px}.authbox h2{font-size:23px}}
+
+/* GitHub App connection foundation */
+.github-card{margin-bottom:18px}
+.github-card .panel-heading h3{display:flex;align-items:center;gap:8px}
+.github-connect{display:inline-flex;align-items:center;gap:9px;text-decoration:none;margin-top:4px}
+.github-controls{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}
+.github-account,.github-repo>div{display:flex;flex-direction:column;gap:4px;min-width:0}
+.github-account span,.github-repo span,.github-message,.github-safety{font-size:12px;color:var(--muted,#8d98ae);overflow-wrap:anywhere}
+.github-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.github-actions select{max-width:100%;min-width:190px;background:#111827;color:inherit;border:1px solid #343c53;border-radius:10px;padding:10px}
+.github-message{margin:12px 0 0}
+.github-safety{border-top:1px solid rgba(148,163,184,.14);padding-top:10px;margin:12px 0 0}
+.github-repo-list{display:grid;gap:8px;margin-top:12px}
+.github-repo{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:11px 12px;border:1px solid rgba(148,163,184,.16);border-radius:11px;min-width:0}
+.github-repo strong{overflow-wrap:anywhere}
+.github-repo a{color:#b7a4ff;font-size:12px}
+@media(max-width:600px){.github-controls{align-items:stretch}.github-actions{width:100%}.github-actions select{flex:1;min-width:0}.github-connect{width:100%;justify-content:center}.github-repo{align-items:flex-start}}
