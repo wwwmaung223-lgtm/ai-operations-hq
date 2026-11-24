@@ -118,10 +118,21 @@ export default function Home() {
     setRunning(true); setFeed([]);
     setNotice("The AI Team is processing your instruction. Agent messages are streamed below.");
     try {
+      const uploaded: { path: string; title: string; mime_type: string }[] = [];
+      for (const file of attached) {
+        const form = new FormData();
+        form.append("file", file);
+        const upload = await fetch(API + "/api/upload", { method: "POST", headers: { Authorization: "Bearer " + token }, body: form });
+        const payload = await upload.json();
+        if (!upload.ok) throw new Error(payload.error || payload.message || "Attachment upload failed: " + file.name);
+        const row = Array.isArray(payload) ? payload[0] : payload;
+        if (!row?.storage_path) throw new Error("Attachment was uploaded but its storage reference was missing: " + file.name);
+        uploaded.push({ path: row.storage_path, title: file.name, mime_type: file.type || "application/octet-stream" });
+      }
       const response = await fetch(API + "/api/run", {
         method: "POST",
         headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
-        body: JSON.stringify({ objective })
+        body: JSON.stringify({ objective, attachments: uploaded })
       });
       if (!response.ok) {
         const message = await response.text();
