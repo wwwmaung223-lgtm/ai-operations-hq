@@ -164,6 +164,7 @@ export default function Home() {
           else if (event.event === "final_report") add("Final report", String(event.report || event.output || ""), "done");
           else if (event.event === "design_saved") add("Design preview saved", String(event.title || "SVG preview") + " · " + String(event.aspect_ratio || ""), "done");
           else if (event.event === "artifact_saved") add("Final report saved", String(event.title || "Report") + " · Results Vault", "done");
+          else if (event.event === "model_used") add("Model selected · " + String(event.agent?.name || "AI agent"), String(event.provider || "Provider") + " · " + String(event.model || "Model"), "info");
           else if (event.event === "tool_started") add("Tool started · " + String(event.tool || "tool"), String(event.detail || "Executing a real capability."), "working");
           else if (event.event === "tool_completed") add("Tool completed · " + String(event.tool || "tool"), String(event.title || "Artifact saved") + (event.artifact_id ? " · Artifact " + event.artifact_id : ""), "done");
           else if (event.event === "tool_failed") add("Tool failed · " + String(event.tool || "tool"), String(event.error || "Tool execution failed"), "error");
