@@ -143,7 +143,9 @@ export default function Home() {
           else if (event.event === "handoff_save_failed") add("Handoff save warning", String(event.error), "error");
           else if (event.event === "design_started") add("Design preview requested", "The team is preparing its design output.", "working");
           else if (event.event === "final_report") add("Final report", String(event.report || event.output || ""), "done");
-          else if (event.event === "team_completed") add("Team completed", "Agent workflow finished. Review the report and verify deliverables.", "done");
+          else if (event.event === "design_saved") add("Design preview saved", String(event.title || "SVG preview") + " · " + String(event.aspect_ratio || ""), "done");
+          else if (event.event === "artifact_saved") add("Final report saved", String(event.title || "Report") + " · Results Vault", "done");
+          else if (event.event === "team_finished") add("Team finished", String(event.completed) + "/" + String(event.total) + " agents · Result saved: " + String(event.persisted), "done");
           else add(String(event.event || "Team update"), JSON.stringify(event).slice(0, 1200), "info");
         }
       }
