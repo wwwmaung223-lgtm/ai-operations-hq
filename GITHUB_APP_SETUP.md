@@ -9,7 +9,7 @@ In GitHub: Settings → Developer settings → GitHub Apps → New GitHub App.
 Use:
 - App name: AI Operations HQ
 - Homepage URL: `https://ai-operations-hq-black.vercel.app`
-- Callback URL: `https://ai-operations-hq-black.vercel.app/api/github/callback`
+- Callback URL: `https://ai-operations-hq-git-feat-github-app-in-4a610d-wwwmaung223-lgtm.vercel.app/api/github/callback`
 - Enable **User authorization (OAuth) during installation**.
 - Disable webhook delivery until a verified webhook handler is implemented.
 - Install only on repositories the owner explicitly selects.
@@ -28,6 +28,7 @@ Do not grant Administration, Secrets, or Webhooks permissions for this first mil
 Add these as **server-only** Production and Preview environment variables in the `ai-operations-hq` Vercel project:
 - `GITHUB_APP_CLIENT_ID` — GitHub App client ID
 - `GITHUB_APP_CLIENT_SECRET` — GitHub App client secret
+- `GITHUB_APP_CALLBACK_URL` — exact callback URL registered in the GitHub App (use the Preview callback during initial testing, then change both the App callback and this variable to Production before merging/enabling Production)
 
 Never use a `NEXT_PUBLIC_` prefix for either value. Redeploy Preview after adding them.
 
