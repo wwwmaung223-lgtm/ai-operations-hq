@@ -40,6 +40,7 @@ export default function Home() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [feed, setFeed] = useState<FeedEvent[]>([]);
   const [running, setRunning] = useState(false);
+  const [collectiveStatus, setCollectiveStatus] = useState<{router:string;primary:{provider:string;model:string;available:boolean};optionalProviders:{provider:string;configured:boolean;paidModelsBlocked:boolean}[];automaticPaidFallback:boolean;quotaPolicy:string} | null>(null);
   const [githubConnected, setGithubConnected] = useState(false);
   const [githubAccount, setGithubAccount] = useState("");
   const [githubInstallations, setGithubInstallations] = useState<GitHubInstallation[]>([]);
@@ -70,6 +71,11 @@ export default function Home() {
     setAgents(Array.isArray(team) ? team : []);
     setTasks(Array.isArray(history) ? history : []);
   }, [api]);
+
+  useEffect(() => {
+    if (!token) { setCollectiveStatus(null); return; }
+    api("/api/collective/status").then(setCollectiveStatus).catch(() => setCollectiveStatus(null));
+  }, [token, api]);
 
   useEffect(() => {
     const saved = window.localStorage.getItem("ai-ops-session");
@@ -235,6 +241,11 @@ export default function Home() {
         <header className="topbar"><div className="topbar-left"><button className="icon-button mobile-menu" onClick={()=>setMenuOpen(true)} aria-label="Open menu"><Menu size={20}/></button><span className="breadcrumb">Workspace</span><span className="crumb-slash">/</span><strong>{active}</strong></div><div className="topbar-right"><div className="system-pill"><span className="status-dot"/>{token?"Connected":"Sign in required"}</div><button className="icon-button" aria-label="Search"><Search size={18}/></button><div className="top-avatar">M</div></div></header>
         <div className="content">
           <div className="welcome-row"><div><div className="eyebrow"><Sparkles size={14}/> YOUR AI OPERATIONS CENTER</div><h1>Build with your <span>AI team.</span></h1><p>Give an instruction. Your team will plan, coordinate, and report.</p></div><div className="date-chip"><Activity size={15}/> Owner-controlled workspace</div></div>
+          <section className="panel-card collective-card">
+            <div className="panel-heading"><div><h3><BrainCircuit size={17}/> Global AI Collective</h3><p>Free-first model routing with quota-aware fallback. Paid inference is never selected automatically.</p></div><span className="ready-tag">FREE-FIRST</span></div>
+            <div className="collective-grid"><div><strong>{collectiveStatus?.primary.provider || "Cloudflare Workers AI"}</strong><span>{collectiveStatus?.primary.model || "Primary model route"}</span></div><div><strong>OpenRouter Free</strong><span>{collectiveStatus?.optionalProviders?.[0]?.configured ? "API configured · zero-price models only" : "Optional · not connected yet"}</span></div></div>
+            <p className="github-safety">{collectiveStatus?.quotaPolicy || "No automatic paid fallback. Connect optional free-tier providers to expand the collective model pool."}</p>
+          </section>
           <section className="panel-card github-card">
             <div className="panel-heading"><div><h3><FolderGit2 size={17}/> GitHub workspace connection</h3><p>Authorize a GitHub App, choose its installation, and inspect permitted repositories.</p></div><span className={githubConnected ? "ready-tag" : "step-count"}>{githubConnected ? "CONNECTED" : "NOT CONNECTED"}</span></div>
             {githubConnected ? <div className="github-controls"><div className="github-account"><strong>{githubAccount || "GitHub account"}</strong><span>App authorization is stored in a protected server cookie.</span></div><div className="github-actions"><select aria-label="GitHub App installation" value={githubInstallId} onChange={e => loadGitHubRepos(e.target.value)}><option value="">Choose installation</option>{githubInstallations.map(item => <option key={item.id} value={item.id}>{item.account} · {item.app}</option>)}</select><button className="text-button" onClick={disconnectGitHub}>Disconnect</button></div></div> : <a className="primary-button github-connect" href="/api/github/connect"><FolderGit2 size={16}/> Connect GitHub App <ArrowUpRight size={15}/></a>}
