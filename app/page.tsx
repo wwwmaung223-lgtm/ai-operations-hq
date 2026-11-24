@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
-  Activity, ArrowUpRight, Bot, CheckCircle2, ChevronDown, CircleHelp,
+  Activity, ArrowUpRight, Bot, BrainCircuit, CheckCircle2, ChevronDown, CircleHelp,
   Command, FileImage, FolderGit2, Gauge, LayoutDashboard, LogOut, Menu,
   MessageSquareText, Paperclip, Plus, Search, ShieldCheck, Sparkles,
   Workflow, X, LoaderCircle
