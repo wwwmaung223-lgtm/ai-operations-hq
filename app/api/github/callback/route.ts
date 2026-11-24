@@ -4,13 +4,13 @@ export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
   const clientId = process.env.GITHUB_APP_CLIENT_ID;
-  const clientSecret = process.env.GITHUB_APP_CLIENT_SECRET;\n  const callbackUrl = process.env.GITHUB_APP_CALLBACK_URL;
+  const clientSecret = process.env.GITHUB_APP_CLIENT_SECRET;
+  const callbackUrl = process.env.GITHUB_APP_CALLBACK_URL;
   const expectedState = request.cookies.get("github_oauth_state")?.value;
   const { searchParams } = new URL(request.url);
   const code = searchParams.get("code");
   const state = searchParams.get("state");
   const error = searchParams.get("error");
-  const base = new URL("/", request.url);
   if (error || !code || !state || !expectedState || state !== expectedState || !clientId || !clientSecret || !callbackUrl) {
     const response = NextResponse.redirect(new URL("/?github=connect_error", request.url));
     response.cookies.delete("github_oauth_state");
