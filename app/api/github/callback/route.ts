@@ -4,14 +4,14 @@ export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
   const clientId = process.env.GITHUB_APP_CLIENT_ID;
-  const clientSecret = process.env.GITHUB_APP_CLIENT_SECRET;
+  const clientSecret = process.env.GITHUB_APP_CLIENT_SECRET;\n  const callbackUrl = process.env.GITHUB_APP_CALLBACK_URL;
   const expectedState = request.cookies.get("github_oauth_state")?.value;
   const { searchParams } = new URL(request.url);
   const code = searchParams.get("code");
   const state = searchParams.get("state");
   const error = searchParams.get("error");
   const base = new URL("/", request.url);
-  if (error || !code || !state || !expectedState || state !== expectedState || !clientId || !clientSecret) {
+  if (error || !code || !state || !expectedState || state !== expectedState || !clientId || !clientSecret || !callbackUrl) {
     const response = NextResponse.redirect(new URL("/?github=connect_error", request.url));
     response.cookies.delete("github_oauth_state");
     return response;
@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
     const exchange = await fetch("https://github.com/login/oauth/access_token", {
       method: "POST",
       headers: { Accept: "application/vnd.github+json", "Content-Type": "application/json" },
-      body: JSON.stringify({ client_id: clientId, client_secret: clientSecret, code })
+      body: JSON.stringify({ client_id: clientId, client_secret: clientSecret, code, redirect_uri: callbackUrl })
     });
     const payload = await exchange.json() as { access_token?: string; error?: string };
     if (!exchange.ok || !payload.access_token) throw new Error(payload.error || "GitHub authorization failed");
