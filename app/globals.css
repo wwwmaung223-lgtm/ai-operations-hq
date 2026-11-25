@@ -24,3 +24,26 @@ button{cursor:pointer}
 
 .auth{background:rgba(3,7,14,.88);backdrop-filter:blur(14px)}.authbox{box-shadow:0 28px 100px #0009}.auth-kicker{font-size:9px;letter-spacing:2px;color:#b9a8ff;font-weight:800;margin:15px 0 7px}.authbox h2{font:800 26px Manrope;margin:0 0 8px}.authbox>label{display:block;color:#aeb8ca;font-size:10px;margin-top:15px}.authbox input{display:block;width:100%;margin-top:7px;background:#091522;color:#f4f6ff;border:1px solid #ffffff18;border-radius:9px;padding:12px;font:12px 'DM Sans',sans-serif;outline:none}.authbox input:focus{border-color:#a78bfa88}.auth-submit{width:100%;justify-content:center;margin-top:18px;padding:12px}.auth-switch{width:100%;justify-content:center;margin-top:13px}.auth-error{font-size:10px;line-height:1.5;color:#ff9b9b;background:#ff5d5d14;border:1px solid #ff5d5d33;padding:9px;border-radius:8px}.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}.live-feed,.history-card{margin-top:15px}.feed-list{max-height:520px;overflow:auto;display:grid;gap:10px}.feed-event{display:flex;gap:10px;padding:10px;border-top:1px solid #ffffff0b}.feed-dot{width:8px;height:8px;border-radius:50%;background:#9c8aff;margin-top:5px;flex:none}.feed-dot.done{background:#70d7a2}.feed-dot.error{background:#ff8888}.feed-event strong{font-size:10px}.feed-event p{font-size:10px;line-height:1.55;color:#9aa5ba;white-space:pre-wrap;overflow-wrap:anywhere;margin:5px 0 0}.task-list{display:grid}.task-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 2px;border-top:1px solid #ffffff0b}.task-copy{min-width:0}.task-copy strong{font-size:10px;display:block;overflow-wrap:anywhere}.task-copy span{font-size:9px;color:#7e899e;display:block;margin-top:4px}.task-status{font-size:8px;text-transform:uppercase;letter-spacing:.6px;border-radius:20px;padding:5px 8px;background:#ffffff0d;color:#aab4c8;white-space:nowrap}.task-status.completed{color:#84d8ad;background:#4ade8014}.task-status.in_progress,.task-status.queued{color:#c6b5ff;background:#a78bfa17}.task-status.failed{color:#ff9b9b;background:#ff5d5d14}.empty-state{font-size:10px;color:#7f899e;padding:10px 0}.note{font-size:9px;line-height:1.55;color:#7e899e;margin-top:13px}.authbox .note{text-align:center}.profile button{margin-left:auto}
 @media(max-width:760px){.auth{align-items:center;padding:16px}.authbox{padding:18px}.task-row{align-items:flex-start}.feed-list{max-height:420px}.authbox h2{font-size:23px}}
+
+
+/* Auth must cover the workspace instead of becoming a side-by-side flex column. */
+.auth{position:fixed;inset:0;z-index:20;display:grid;place-items:center;width:100%;min-height:100dvh;padding:24px;overflow-y:auto}
+.authbox{width:min(100%,420px);min-width:0;margin:auto}
+.app-shell,.main-panel,.content{min-width:0}
+.collective-card,.composer-card,.panel-card,.metric-card{min-width:0}
+.collective-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.collective-grid>div{min-width:0;overflow-wrap:anywhere}
+.collective-grid>div strong,.collective-grid>div span{display:block;overflow-wrap:anywhere}
+.collective-grid>div span{font-size:10px;color:var(--muted);margin-top:5px}
+@media(max-width:760px){
+  .auth{padding:16px}
+  .authbox{width:min(100%,420px);padding:20px 18px}
+  .collective-grid{grid-template-columns:1fr}
+  .collective-card{padding:14px}
+  .collective-card .panel-heading{align-items:flex-start;gap:10px}
+  .collective-card .panel-heading>div{min-width:0}
+  .collective-card .panel-heading p{line-height:1.5}
+  .collective-card .metrics-grid{grid-template-columns:1fr}
+  .collective-card .metric-card{min-width:0;overflow-wrap:anywhere}
+  .collective-card .metric-card>strong{font-size:clamp(17px,5vw,22px);overflow-wrap:anywhere}
+}
