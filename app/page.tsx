@@ -38,6 +38,16 @@ export default function Home() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [feed, setFeed] = useState<FeedEvent[]>([]);
   const [running, setRunning] = useState(false);
+  const [collectiveStatus, setCollectiveStatus] = useState<{
+    router:string;
+    test:{success:boolean;provider:string;model:string;fallbackReason:string|null;attempts:{provider:string;available:boolean;error?:string;latencyMs?:number}[]};
+    primary:{provider:string;model:string;available:boolean};
+    freeProviders:{provider:string;mode:string;keyRequired:boolean;model:string;rateLimit:string;status:string}[];
+    optionalProviders:{provider:string;configured:boolean;paidModelsBlocked:boolean}[];
+    automaticPaidFallback:boolean;
+    quotaPolicy:string;
+  } | null>(null);
+  const [collectiveError, setCollectiveError] = useState("");
 
   const api = useCallback(async (path: string, options: RequestInit = {}, authToken = token) => {
     const headers = new Headers(options.headers || {});
@@ -62,6 +72,15 @@ export default function Home() {
     setAgents(Array.isArray(team) ? team : []);
     setTasks(Array.isArray(history) ? history : []);
   }, [api]);
+
+  useEffect(() => {
+    if (!token) { setCollectiveStatus(null); setCollectiveError(""); return; }
+    let cancelled = false;
+    setCollectiveError("");
+    api("/api/collective/status").then(data => { if (!cancelled) setCollectiveStatus(data); })
+      .catch(error => { if (!cancelled) setCollectiveError(error instanceof Error ? error.message : "Live provider check failed"); });
+    return () => { cancelled = true; };
+  }, [token, api]);
 
   useEffect(() => {
     const saved = window.localStorage.getItem("ai-ops-session");
@@ -187,6 +206,33 @@ export default function Home() {
         <header className="topbar"><div className="topbar-left"><button className="icon-button mobile-menu" onClick={()=>setMenuOpen(true)} aria-label="Open menu"><Menu size={20}/></button><span className="breadcrumb">Workspace</span><span className="crumb-slash">/</span><strong>{active}</strong></div><div className="topbar-right"><div className="system-pill"><span className="status-dot"/>{token?"Connected":"Sign in required"}</div><button className="icon-button" aria-label="Search"><Search size={18}/></button><div className="top-avatar">M</div></div></header>
         <div className="content">
           <div className="welcome-row"><div><div className="eyebrow"><Sparkles size={14}/> YOUR AI OPERATIONS CENTER</div><h1>Build with your <span>AI team.</span></h1><p>Give an instruction. Your team will plan, coordinate, and report.</p></div><div className="date-chip"><Activity size={15}/> Owner-controlled workspace</div></div>
+          <section className="panel-card collective-card">
+            <div className="panel-heading">
+              <div><h3><Bot size={17}/> Global AI Collective</h3><p>Anonymous free AI routes are tried first. Only verified responses are marked active.</p></div>
+              <span className={collectiveStatus?.test?.success ? "ready-tag" : "step-count"}>{collectiveStatus?.test?.success ? "LIVE TEST PASSED" : token ? "CHECKING" : "SIGN IN"}</span>
+            </div>
+            {collectiveError && <p className="github-message">Provider check failed: {collectiveError}</p>}
+            <div className="collective-grid">
+              <div><strong>{collectiveStatus?.test?.provider || "Waiting for owner sign-in"}</strong><span>{collectiveStatus?.test?.model || "No model has been verified in this session"}</span></div>
+              <div><strong>{collectiveStatus?.automaticPaidFallback === false ? "Paid fallback disabled" : "Policy not verified"}</strong><span>{collectiveStatus?.quotaPolicy || "Free-first routing policy"}</span></div>
+            </div>
+            <div className="metrics-grid">
+              {(collectiveStatus?.freeProviders || [
+                {provider:"Kilo Gateway",model:"kilo-auto/free",status:"not_verified",rateLimit:"200 requests/hour/IP"},
+                {provider:"OVHcloud AI Endpoints",model:"gpt-oss-20b",status:"not_verified",rateLimit:"2 requests/minute/IP/model"}
+              ]).map(provider => {
+                const active = provider.status === "active";
+                const attempt = collectiveStatus?.test?.attempts?.find(item => item.provider.toLowerCase().includes(provider.provider.split(" ")[0].toLowerCase()));
+                return <div className="metric-card" key={provider.provider}>
+                  <div className="metric-top"><span>{provider.provider}</span><span className={active ? "ready-tag" : "step-count"}>{active ? "ACTIVE" : "NOT VERIFIED"}</span></div>
+                  <strong>{provider.model}</strong>
+                  <small>{provider.rateLimit}{attempt?.latencyMs ? " · "+attempt.latencyMs+" ms" : ""}</small>
+                  {!active && attempt?.error && <small>{attempt.error}</small>}
+                </div>;
+              })}
+            </div>
+            <p className="github-safety">The live test reports the provider actually selected. Anonymous providers can be rate-limited or unavailable; sensitive/private data should not be sent to public free endpoints.</p>
+          </section>
           <section className="composer-card"><div className="composer-top"><div className="composer-icon"><Sparkles size={18}/></div><div><strong>What should your team work on?</strong><span>Describe the outcome. Add reference files for the next file-aware workflow stage.</span></div><span className="secure-tag"><ShieldCheck size={13}/> Owner controlled</span></div>
             <textarea value={prompt} onChange={e=>setPrompt(e.target.value)} placeholder="Example: Analyze my website's current architecture and create a prioritized improvement plan..." rows={3} disabled={!token||running}/>
             {attached.length>0&&<div className="attachment-list">{attached.map((file,i)=><span key={i}><FileImage size={13}/>{file.name}</span>)}</div>}
