@@ -22,21 +22,41 @@ const workflow = [
   { title: "Save and report", detail: "Store evidence, artifacts, and decisions", icon: CheckCircle2 }
 ];
 
-async function readJsonResponse(response: Response, context: string): Promise<any> {
+type JsonRecord = Record<string, unknown>;
+type JsonPayload = JsonRecord | unknown[];
+type StreamEvent = {
+  event?: string;
+  task_id?: string;
+  agent?: { name?: string };
+  step?: number;
+  output?: string;
+  error?: string;
+  from?: string;
+  to?: string;
+  persisted?: boolean;
+  completed?: number;
+  total?: number;
+  title?: string;
+};
+function isRecord(value: unknown): value is JsonRecord {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+async function readJsonResponse(response: Response, context: string): Promise<JsonPayload> {
   const raw = await response.text();
-  let body: any = {};
+  let body: unknown = {};
   if (raw) {
     try { body = JSON.parse(raw); }
     catch { body = raw; }
   }
   if (!response.ok) {
-    const candidate = body && typeof body === "object"
+    const candidate = isRecord(body)
       ? body.message || body.msg || body.error_description || body.error
       : body;
     const message = String(candidate || raw || "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 280);
     throw new Error(message || context + " failed (HTTP " + response.status + ")");
   }
-  if (body && typeof body === "object") return body;
+  if (isRecord(body) || Array.isArray(body)) return body;
   const preview = String(body || "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 180);
   throw new Error(context + " returned an unexpected non-JSON response" + (preview ? ": " + preview : ""));
 }
@@ -86,16 +106,17 @@ export default function Home() {
       api("/api/agents", {}, authToken),
       api("/api/tasks", {}, authToken)
     ]);
-    setUserEmail(user.email || "");
-    setAgents(Array.isArray(team) ? team : []);
-    setTasks(Array.isArray(history) ? history : []);
+    const userData = isRecord(user) ? user : {};
+    setUserEmail(typeof userData.email === "string" ? userData.email : "");
+    setAgents(Array.isArray(team) ? team as Agent[] : []);
+    setTasks(Array.isArray(history) ? history as Task[] : []);
   }, [api]);
 
   useEffect(() => {
     if (!token) { setCollectiveStatus(null); setCollectiveError(""); return; }
     let cancelled = false;
     setCollectiveError("");
-    api("/api/collective/status").then(data => { if (!cancelled) setCollectiveStatus(data); })
+    api("/api/collective/status").then(data => { if (!cancelled && isRecord(data)) setCollectiveStatus(data as NonNullable<typeof collectiveStatus>); })
       .catch(error => { if (!cancelled) setCollectiveError(error instanceof Error ? error.message : "Live provider check failed"); });
     return () => { cancelled = true; };
   }, [token, api]);
@@ -115,8 +136,10 @@ export default function Home() {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: email.trim(), password })
       });
-      const data = await readJsonResponse(response, authMode === "login" ? "Sign in" : "Create account");
-      if (!response.ok) throw new Error(data.message || data.msg || data.error_description || data.error || "Authentication failed");
+      const payload = await readJsonResponse(response, authMode === "login" ? "Sign in" : "Create account");
+      if (!isRecord(payload)) throw new Error("Authentication returned an invalid response");
+      const data = payload;
+      if (!response.ok) throw new Error(String(data.message || data.msg || data.error_description || data.error || "Authentication failed"));
       if (!data.access_token) {
         setAuthError("Account request received. Check your email for confirmation, then sign in.");
         setAuthMode("login"); return;
@@ -170,14 +193,15 @@ export default function Home() {
           body: form
         });
         const uploaded = await readJsonResponse(uploadResponse, "Upload " + file.name);
-        const row = (Array.isArray(uploaded) ? uploaded[0] : uploaded) as any;
-        if (!row || typeof row.storage_path !== "string" || !row.storage_path) {
+        const row = Array.isArray(uploaded) ? uploaded[0] : uploaded;
+        if (!isRecord(row) || typeof row.storage_path !== "string" || !row.storage_path) {
           throw new Error("Upload response did not include a private storage path for " + file.name);
         }
+        const metadata = isRecord(row.metadata) ? row.metadata : {};
         const reference: UploadedAttachment = {
           path: row.storage_path,
           title: String(row.title || file.name),
-          mime_type: String(row.metadata?.mime_type || file.type || "application/octet-stream")
+          mime_type: String(metadata.mime_type || file.type || "application/octet-stream")
         };
         taskAttachments.push(reference);
         setUploadedAttachments(current => [...current, reference]);
@@ -207,8 +231,12 @@ export default function Home() {
         const lines = buffer.split("\n"); buffer = lines.pop() || "";
         for (const line of lines) {
           if (!line.trim()) continue;
-          let event: any;
-          try { event = JSON.parse(line); } catch { continue; }
+          let event: StreamEvent;
+          try {
+            const parsed: unknown = JSON.parse(line);
+            if (!isRecord(parsed)) continue;
+            event = parsed as StreamEvent;
+          } catch { continue; }
           if (event.event === "team_started") add("Team started", "Task ID: " + event.task_id, "working");
           else if (event.event === "agent_started") add(event.agent?.name || "Agent started", "Step " + event.step + " · Working", "working");
           else if (event.event === "agent_completed") add("✓ " + (event.agent?.name || "Agent completed"), String(event.output || "Contribution saved"), "done");
