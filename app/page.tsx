@@ -11,6 +11,7 @@ import {
 const API = "https://ai-team-live.myintaung7432.workers.dev";
 type Agent = { id: string; agent_key: string; name: string; agent_role: string; status: string };
 type Task = { id: string; title: string; description: string; status: string; priority: string; created_at: string };
+type UploadedAttachment = { path: string; title: string; mime_type: string };
 type FeedEvent = { id: number; title: string; detail: string; status: "working" | "done" | "error" | "info" };
 
 const workflow = [
@@ -20,6 +21,25 @@ const workflow = [
   { title: "Test and repair", detail: "Run checks, inspect browser, fix failures", icon: ShieldCheck },
   { title: "Save and report", detail: "Store evidence, artifacts, and decisions", icon: CheckCircle2 }
 ];
+
+async function readJsonResponse(response: Response, context: string): Promise<any> {
+  const raw = await response.text();
+  let body: any = {};
+  if (raw) {
+    try { body = JSON.parse(raw); }
+    catch { body = raw; }
+  }
+  if (!response.ok) {
+    const candidate = body && typeof body === "object"
+      ? body.message || body.msg || body.error_description || body.error
+      : body;
+    const message = String(candidate || raw || "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 280);
+    throw new Error(message || context + " failed (HTTP " + response.status + ")");
+  }
+  if (body && typeof body === "object") return body;
+  const preview = String(body || "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 180);
+  throw new Error(context + " returned an unexpected non-JSON response" + (preview ? ": " + preview : ""));
+}
 
 export default function Home() {
   const [token, setToken] = useState("");
@@ -32,6 +52,7 @@ export default function Home() {
   const [prompt, setPrompt] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [attached, setAttached] = useState<File[]>([]);
+  const [uploadedAttachments, setUploadedAttachments] = useState<UploadedAttachment[]>([]);
   const [notice, setNotice] = useState("Sign in to load your private AI workspace.");
   const [active, setActive] = useState("Overview");
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -55,11 +76,8 @@ export default function Home() {
     if (options.body && !(options.body instanceof FormData) && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
     const response = await fetch(API + path, { ...options, headers });
     const type = response.headers.get("content-type") || "";
-    if (!response.ok) {
-      const body = type.includes("json") ? await response.json().catch(() => ({})) : await response.text();
-      throw new Error(typeof body === "string" ? body : body.error || body.message || "Request failed (" + response.status + ")");
-    }
-    return type.includes("json") ? response.json() : response;
+    if (type.includes("json") || !response.ok) return readJsonResponse(response, path);
+    return response;
   }, [token]);
 
   const refreshWorkspace = useCallback(async (authToken: string) => {
@@ -97,7 +115,7 @@ export default function Home() {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: email.trim(), password })
       });
-      const data = await response.json();
+      const data = await readJsonResponse(response, authMode === "login" ? "Sign in" : "Create account");
       if (!response.ok) throw new Error(data.message || data.msg || data.error_description || data.error || "Authentication failed");
       if (!data.access_token) {
         setAuthError("Account request received. Check your email for confirmation, then sign in.");
@@ -114,25 +132,62 @@ export default function Home() {
 
   async function signOut() {
     window.localStorage.removeItem("ai-ops-session");
-    setToken(""); setUserEmail(""); setAgents([]); setTasks([]); setFeed([]);
+    setToken(""); setUserEmail(""); setAgents([]); setTasks([]); setFeed([]); setAttached([]); setUploadedAttachments([]);
     setNotice("Signed out. Your saved tasks remain in your private database.");
   }
 
   function addFiles(files: FileList | null) {
     if (!files) return;
-    setAttached(current => [...current, ...Array.from(files)].slice(0, 8));
+    const incoming = Array.from(files);
+    const maxBytes = 5 * 1024 * 1024;
+    const accepted = incoming.filter(file => file.size <= maxBytes);
+    const tooLarge = incoming.filter(file => file.size > maxBytes);
+    const slots = Math.max(0, 8 - attached.length - uploadedAttachments.length);
+    const selected = accepted.slice(0, slots);
+    if (selected.length) setAttached(current => [...current, ...selected]);
+    if (tooLarge.length || selected.length < accepted.length) {
+      const messages: string[] = [];
+      if (tooLarge.length) messages.push(tooLarge.length + " file(s) exceed the 5 MB limit");
+      if (selected.length < accepted.length) messages.push("only 8 attachments can be queued per task");
+      setNotice(messages.join("; ") + ". Remove or reduce files before starting the task.");
+    }
   }
 
   async function createTask() {
     const objective = prompt.trim();
     if (!objective || running || !token) return;
     setRunning(true); setFeed([]);
-    setNotice("The AI Team is processing your instruction. Agent messages are streamed below.");
+    setNotice(attached.length ? "Uploading references to your private Results Vault..." : "The AI Team is processing your instruction. Agent messages are streamed below.");
     try {
+      const taskAttachments: UploadedAttachment[] = [...uploadedAttachments];
+      const totalReferences = uploadedAttachments.length + attached.length;
+      for (const file of [...attached]) {
+        const form = new FormData();
+        form.append("file", file, file.name);
+        const uploadResponse = await fetch(API + "/api/upload", {
+          method: "POST",
+          headers: { Authorization: "Bearer " + token },
+          body: form
+        });
+        const uploaded = await readJsonResponse(uploadResponse, "Upload " + file.name);
+        const row = (Array.isArray(uploaded) ? uploaded[0] : uploaded) as any;
+        if (!row || typeof row.storage_path !== "string" || !row.storage_path) {
+          throw new Error("Upload response did not include a private storage path for " + file.name);
+        }
+        const reference: UploadedAttachment = {
+          path: row.storage_path,
+          title: String(row.title || file.name),
+          mime_type: String(row.metadata?.mime_type || file.type || "application/octet-stream")
+        };
+        taskAttachments.push(reference);
+        setUploadedAttachments(current => [...current, reference]);
+        setAttached(current => current.filter(item => item !== file));
+        setNotice("Uploaded " + taskAttachments.length + " of " + totalReferences + " queued reference(s). Starting the AI Team...");
+      }
       const response = await fetch(API + "/api/run", {
         method: "POST",
         headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
-        body: JSON.stringify({ objective })
+        body: JSON.stringify({ objective, attachments: taskAttachments })
       });
       if (!response.ok) {
         const message = await response.text();
@@ -168,7 +223,7 @@ export default function Home() {
           else add(String(event.event || "Team update"), JSON.stringify(event).slice(0, 1200), "info");
         }
       }
-      setPrompt(""); setAttached([]);
+      setPrompt(""); setAttached([]); setUploadedAttachments([]);
       await refreshWorkspace(token);
       setNotice("Agent workflow finished. Review the streamed outputs; code edits and browser tests are not implied unless explicitly evidenced.");
     } catch (error) {
@@ -235,8 +290,8 @@ export default function Home() {
           </section>
           <section className="composer-card"><div className="composer-top"><div className="composer-icon"><Sparkles size={18}/></div><div><strong>What should your team work on?</strong><span>Describe the outcome. Add reference files for the next file-aware workflow stage.</span></div><span className="secure-tag"><ShieldCheck size={13}/> Owner controlled</span></div>
             <textarea value={prompt} onChange={e=>setPrompt(e.target.value)} placeholder="Example: Analyze my website's current architecture and create a prioritized improvement plan..." rows={3} disabled={!token||running}/>
-            {attached.length>0&&<div className="attachment-list">{attached.map((file,i)=><span key={i}><FileImage size={13}/>{file.name}</span>)}</div>}
-            <div className="composer-footer"><label className="attach-button"><Paperclip size={16}/> Attach files<input type="file" multiple accept="image/*,.pdf,.txt,.md,.zip" onChange={e=>addFiles(e.target.files)} disabled={!token||running}/></label><span className="composer-hint">Attachments are selected locally; file-to-agent processing is not enabled yet.</span><button className="primary-button" onClick={createTask} disabled={!token||running||!prompt.trim()}>{running?<LoaderCircle className="spin" size={16}/>:<Plus size={16}/>} {running?"Team working":"Start AI Team"} <ArrowUpRight size={15}/></button></div>
+            {(attached.length>0||uploadedAttachments.length>0)&&<div className="attachment-list">{uploadedAttachments.map((file,i)=><span key={"uploaded-"+i}><FileImage size={13}/>{file.title} · ready</span>)}{attached.map((file,i)=><span key={"local-"+i}><FileImage size={13}/>{file.name} · waiting</span>)}</div>}
+            <div className="composer-footer"><label className="attach-button"><Paperclip size={16}/> Attach files<input type="file" multiple accept="image/*,.pdf,.txt,.md,.zip,.csv,.json,.js,.ts,.tsx,.jsx,.py,.css,.html,.sql" onChange={e=>addFiles(e.target.files)} disabled={!token||running}/></label><span className="composer-hint">Files upload to your private Results Vault and are passed to the AI team. Images and text/code are read; PDF/ZIP are stored but not extracted yet.</span><button className="primary-button" onClick={createTask} disabled={!token||running||!prompt.trim()}>{running?<LoaderCircle className="spin" size={16}/>:<Plus size={16}/>} {running?"Team working":"Start AI Team"} <ArrowUpRight size={15}/></button></div>
           </section>
           {feed.length>0&&<section className="panel-card live-feed"><div className="panel-heading"><div><h3>Live task activity</h3><p>Streaming events from the AI Team runtime.</p></div><span className="step-count">{running?"RUNNING":"LATEST RUN"}</span></div><div className="feed-list">{feed.map(item=><div className="feed-event" key={item.id}><span className={`feed-dot ${item.status}`}/><div><strong>{item.title}</strong><p>{item.detail}</p></div></div>)}</div></section>}
           <div className="section-heading"><div><h2>Workspace overview</h2><p>Your control center for coordinated AI work.</p></div><span className="muted-label">LIVE DATA</span></div>
