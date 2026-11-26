@@ -31,7 +31,8 @@ The current image-generation endpoint is an actual Worker tool path. The generic
 
 ## Verification status
 
-- Vercel Preview for the auth/file-reference client changes: READY.
+- Vercel Preview for the latest typed auth/file-reference client changes: READY; homepage HTTP check: 200.
+- GitHub Actions CI on the latest code commit: lint, TypeScript check, and production build all passed.
 - GitHub source checks confirm the response parser and upload-reference wiring are present.
 - Sign-in, sign-up, private file upload, and a full 12-agent task have not yet been end-to-end exercised with a real owner account.
 - PDF and ZIP attachments are stored but not extracted by the task runner.
@@ -39,7 +40,7 @@ The current image-generation endpoint is an actual Worker tool path. The generic
 
 ## Next engineering gates
 
-1. Run CI on every pull request and relevant branch push.
+1. [x] Run CI on every pull request and relevant branch push (lint, typecheck, production build).
 2. Add owner-approved GitHub App access with least-privilege repository permissions.
 3. Implement branch-scoped file read/write operations behind approval records.
 4. Run project-specific lint, typecheck, build, and browser tests in an isolated workspace.
