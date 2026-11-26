@@ -2,7 +2,7 @@
 
 An owner-directed AI operations system that turns natural-language instructions, reference images, and files into traceable work: inspect, plan, execute, test, repair, and report.
 
-> **Current status:** Repository foundation and operating specifications only. Planned integrations must not be treated as implemented until present in code and verified.
+> **Current status (2026-11-26):** A runnable Next.js owner workspace and connected Cloudflare Worker runtime exist. The preview branch includes hardened API response parsing and private file-to-task reference wiring. GitHub Actions CI now runs lint, TypeScript checks, and a production build; the latest verified run passed. Specialist roles currently produce model-generated handoffs; autonomous GitHub code editing, isolated test execution, and browser automation are not yet implemented. See [current capabilities and verification boundaries](docs/current-capabilities.md).
 
 ## Product promise
 
