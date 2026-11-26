@@ -5,13 +5,15 @@ import {
   Activity, ArrowUpRight, Bot, CheckCircle2, ChevronDown, CircleHelp,
   Command, FileImage, FolderGit2, Gauge, LayoutDashboard, LogOut, Menu,
   MessageSquareText, Paperclip, Plus, Search, ShieldCheck, Sparkles,
-  Workflow, X, LoaderCircle
+  Workflow, X, LoaderCircle, Github, RefreshCw
 } from "lucide-react";
 
 const API = "https://ai-team-live.myintaung7432.workers.dev";
 type Agent = { id: string; agent_key: string; name: string; agent_role: string; status: string };
 type Task = { id: string; title: string; description: string; status: string; priority: string; created_at: string };
 type UploadedAttachment = { path: string; title: string; mime_type: string };
+type GitHubInstallation = { id: number; account: string; app: string };
+type GitHubRepository = { id: number; full_name: string; private: boolean; default_branch: string; url: string };
 type FeedEvent = { id: number; title: string; detail: string; status: "working" | "done" | "error" | "info" };
 
 const workflow = [
@@ -92,6 +94,13 @@ export default function Home() {
     quotaPolicy:string;
   } | null>(null);
   const [collectiveError, setCollectiveError] = useState("");
+  const [githubConnected, setGithubConnected] = useState(false);
+  const [githubAccount, setGithubAccount] = useState("");
+  const [githubInstallations, setGithubInstallations] = useState<GitHubInstallation[]>([]);
+  const [githubInstallationId, setGithubInstallationId] = useState("");
+  const [githubRepositories, setGithubRepositories] = useState<GitHubRepository[]>([]);
+  const [githubBusy, setGithubBusy] = useState(false);
+  const [githubError, setGithubError] = useState("");
 
   const api = useCallback(async (path: string, options: RequestInit = {}, authToken = token) => {
     const headers = new Headers(options.headers || {});
@@ -102,6 +111,118 @@ export default function Home() {
     if (type.includes("json") || !response.ok) return readJsonResponse(response, path);
     return response;
   }, [token]);
+
+  const githubApi = useCallback(async (path: string, options: RequestInit = {}) => {
+    const headers = new Headers(options.headers || {});
+    if (token) headers.set("Authorization", "Bearer " + token);
+    if (options.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+    const response = await fetch(path, { ...options, headers, cache: "no-store" });
+    return readJsonResponse(response, path);
+  }, [token]);
+
+  const loadGitHubRepositories = useCallback(async (installationId: string) => {
+    const payload = await githubApi("/api/github/repos?installation_id=" + encodeURIComponent(installationId));
+    if (!isRecord(payload) || !Array.isArray(payload.repositories)) throw new Error("GitHub returned an invalid repository list.");
+    const repositories = payload.repositories.filter(isRecord).flatMap(row => {
+      if (typeof row.id !== "number" || typeof row.full_name !== "string") return [];
+      return [{
+        id: row.id,
+        full_name: row.full_name,
+        private: Boolean(row.private),
+        default_branch: typeof row.default_branch === "string" ? row.default_branch : "main",
+        url: typeof row.url === "string" ? row.url : ""
+      }];
+    });
+    setGithubRepositories(repositories);
+  }, [githubApi]);
+
+  const refreshGitHubConnection = useCallback(async () => {
+    const status = await githubApi("/api/github/status");
+    if (!isRecord(status) || status.connected !== true) {
+      setGithubConnected(false);
+      setGithubAccount("");
+      setGithubInstallations([]);
+      setGithubRepositories([]);
+      setGithubInstallationId("");
+      return;
+    }
+    setGithubConnected(true);
+    setGithubAccount(typeof status.account === "string" ? status.account : "GitHub account");
+    const installationPayload = await githubApi("/api/github/installations");
+    if (!isRecord(installationPayload) || !Array.isArray(installationPayload.installations)) {
+      throw new Error("GitHub returned an invalid installation list.");
+    }
+    const installations = installationPayload.installations.filter(isRecord).flatMap(row => {
+      if (typeof row.id !== "number") return [];
+      return [{
+        id: row.id,
+        account: typeof row.account === "string" ? row.account : "GitHub account",
+        app: typeof row.app === "string" ? row.app : "GitHub App"
+      }];
+    });
+    setGithubInstallations(installations);
+    const firstInstallation = installations[0];
+    if (firstInstallation) {
+      const id = String(firstInstallation.id);
+      setGithubInstallationId(id);
+      await loadGitHubRepositories(id);
+    } else {
+      setGithubInstallationId("");
+      setGithubRepositories([]);
+    }
+  }, [githubApi, loadGitHubRepositories]);
+
+  async function connectGitHub() {
+    setGithubBusy(true);
+    setGithubError("");
+    try {
+      const payload = await githubApi("/api/github/connect", { method: "POST" });
+      if (!isRecord(payload) || typeof payload.authorizationUrl !== "string") throw new Error("GitHub did not return an authorization URL.");
+      window.location.assign(payload.authorizationUrl);
+    } catch (error) {
+      setGithubError(error instanceof Error ? error.message : "Could not start GitHub connection.");
+      setGithubBusy(false);
+    }
+  }
+
+  async function disconnectGitHub() {
+    setGithubBusy(true);
+    setGithubError("");
+    try {
+      await githubApi("/api/github/disconnect", { method: "POST" });
+      setGithubConnected(false);
+      setGithubAccount("");
+      setGithubInstallations([]);
+      setGithubInstallationId("");
+      setGithubRepositories([]);
+    } catch (error) {
+      setGithubError(error instanceof Error ? error.message : "Could not disconnect GitHub.");
+    } finally {
+      setGithubBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!token) {
+      setGithubConnected(false);
+      setGithubAccount("");
+      setGithubInstallations([]);
+      setGithubRepositories([]);
+      setGithubInstallationId("");
+      return;
+    }
+    const currentUrl = new URL(window.location.href);
+    const callbackResult = currentUrl.searchParams.get("github");
+    if (callbackResult) {
+      setGithubError(callbackResult === "connect_error" ? "GitHub authorization did not complete. Check the App configuration and try again." : "");
+      if (callbackResult === "connected") setNotice("GitHub connected. Select an installation to view its repositories.");
+      currentUrl.searchParams.delete("github");
+      window.history.replaceState({}, "", currentUrl.pathname + currentUrl.search + currentUrl.hash);
+    }
+    refreshGitHubConnection().catch(error => {
+      setGithubError(error instanceof Error ? error.message : "GitHub connection status could not be loaded.");
+    });
+  }, [token, refreshGitHubConnection]);
 
   const refreshWorkspace = useCallback(async (authToken: string) => {
     const [user, team, history] = await Promise.all([
@@ -318,6 +439,43 @@ export default function Home() {
               })}
             </div>
             <p className="github-safety">The live test reports the provider actually selected. Anonymous providers can be rate-limited or unavailable; sensitive/private data should not be sent to public free endpoints.</p>
+          </section>
+          <section className="panel-card github-card">
+            <div className="panel-heading">
+              <div><h3><Github size={17}/> GitHub connection</h3><p>Connect the GitHub account you use for this owner workspace. Only repositories selected during App installation are visible.</p></div>
+              <span className={githubConnected ? "ready-tag" : "step-count"}>{githubConnected ? "CONNECTED" : "NOT CONNECTED"}</span>
+            </div>
+            <div className="github-connection-row">
+              <div><strong>{githubConnected ? githubAccount : "No GitHub account connected"}</strong><span>{githubConnected ? "Owner-bound connection · token kept server-side" : "Connect to list the repositories granted to your GitHub App."}</span></div>
+              {githubConnected
+                ? <button className="text-button" onClick={disconnectGitHub} disabled={githubBusy}>Disconnect</button>
+                : <button className="primary-button" onClick={connectGitHub} disabled={!token || githubBusy}>{githubBusy ? <LoaderCircle className="spin" size={14}/> : <Github size={14}/>} Connect GitHub <ArrowUpRight size={14}/></button>}
+            </div>
+            {githubError && <p className="github-message">{githubError}</p>}
+            {githubConnected && <div className="github-repository-area">
+              <div className="github-repository-toolbar">
+                <label htmlFor="github-installation">Installed account</label>
+                <select id="github-installation" className="github-select" value={githubInstallationId} onChange={event => {
+                  const id = event.target.value;
+                  setGithubInstallationId(id);
+                  setGithubRepositories([]);
+                  if (id) loadGitHubRepositories(id).catch(error => setGithubError(error instanceof Error ? error.message : "Could not load repositories."));
+                }}>
+                  <option value="">Choose installation</option>
+                  {githubInstallations.map(item => <option key={item.id} value={String(item.id)}>{item.account} · {item.app}</option>)}
+                </select>
+                <button className="icon-button" onClick={() => refreshGitHubConnection().catch(error => setGithubError(error instanceof Error ? error.message : "Refresh failed."))} aria-label="Refresh GitHub repositories" disabled={githubBusy}><RefreshCw size={15}/></button>
+              </div>
+              <div className="github-repository-list">
+                {githubRepositories.map(repository => <a key={repository.id} className="github-repository-row" href={repository.url || undefined} target="_blank" rel="noreferrer">
+                  <div><strong>{repository.full_name}</strong><span>{repository.default_branch} · {repository.private ? "Private" : "Public"}</span></div>
+                  <ArrowUpRight size={14}/>
+                </a>)}
+                {githubInstallationId && githubRepositories.length === 0 && <p className="note">No repositories were returned for this installation.</p>}
+                {githubInstallations.length === 0 && <p className="note">No AI Operations HQ installation found. Install the GitHub App on the repositories you want to connect.</p>}
+              </div>
+            </div>}
+            <p className="github-safety">Read-only repository discovery is enabled in this milestone. Code changes, branch creation, and deployment are not enabled until a separate owner-approved tool workflow is implemented.</p>
           </section>
           <section className="composer-card"><div className="composer-top"><div className="composer-icon"><Sparkles size={18}/></div><div><strong>What should your team work on?</strong><span>Describe the outcome. Add reference files for the next file-aware workflow stage.</span></div><span className="secure-tag"><ShieldCheck size={13}/> Owner controlled</span></div>
             <textarea value={prompt} onChange={e=>setPrompt(e.target.value)} placeholder="Example: Analyze my website's current architecture and create a prioritized improvement plan..." rows={3} disabled={!token||running}/>
