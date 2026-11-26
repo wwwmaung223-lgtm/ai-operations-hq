@@ -37,6 +37,9 @@ type StreamEvent = {
   completed?: number;
   total?: number;
   title?: string;
+  access_token?: string;
+  report?: string;
+  aspect_ratio?: string;
 };
 function isRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -140,7 +143,7 @@ export default function Home() {
       if (!isRecord(payload)) throw new Error("Authentication returned an invalid response");
       const data = payload;
       if (!response.ok) throw new Error(String(data.message || data.msg || data.error_description || data.error || "Authentication failed"));
-      if (!data.access_token) {
+      if (typeof data.access_token !== "string" || !data.access_token) {
         setAuthError("Account request received. Check your email for confirmation, then sign in.");
         setAuthMode("login"); return;
       }
